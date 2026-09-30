@@ -17,6 +17,11 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
 
+# 测试素材落到临时目录，不污染工作区文件仓
+evops:
+  asset:
+    storage-dir: ${java.io.tmpdir}/evops-test-assets
+
 logging:
   level:
     com.evops: WARN

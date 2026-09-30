@@ -9,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -37,6 +38,12 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleDuplicate(DuplicateKeyException ex) {
         log.warn("唯一约束冲突: {}", ex.getMostSpecificCause().getMessage());
         return ApiResponse.fail("数据冲突：编号、单号或档期已存在，请刷新后重试");
+    }
+
+    /** 上传文件超体积上限：把限制告诉美工，别只丢一个系统错误。 */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ApiResponse<Void> handleUploadSize(MaxUploadSizeExceededException ex) {
+        return ApiResponse.fail("上传图片超过 20MB 上限，请压缩后重传");
     }
 
     @ExceptionHandler(Exception.class)
