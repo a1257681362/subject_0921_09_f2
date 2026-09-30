@@ -41,6 +41,11 @@
   .tag.down { background: #eee; color: #666; }
   .tag.offset { background: #fdeee2; color: #c2620a; }
   .tag.kind { background: #f3e8ff; color: #7c3aed; }
+  .tag.pending { background: #eee; color: #666; }
+  .tag.processing { background: #e8f3ff; color: #1f6fd0; }
+  .tag.success { background: #eafaf0; color: #1a8a4a; }
+  .tag.failed { background: #fdecea; color: #c0392b; }
+  .failbox { background: #fdecea; border: 1px solid #f3b4ad; color: #a5281b; border-radius: 5px; padding: 8px 10px; margin-top: 6px; font-size: 12px; white-space: pre-wrap; }
   .cell-yes { background: #fdecea; color: #c0392b; text-align: center; cursor: default; }
   .cell-no { background: #eafaf0; color: #1a8a4a; text-align: center; }
   #toast { position: fixed; top: 16px; right: 16px; z-index: 99; display: flex; flex-direction: column; gap: 8px; }
@@ -71,6 +76,7 @@
     <div class="tab" data-tab="receipt">④ 外部回执</div>
     <div class="tab" data-tab="calendar">⑤ 档期月历</div>
     <div class="tab" data-tab="version">⑥ 版本与留底</div>
+    <div class="tab" data-tab="asset">⑦ 素材转档</div>
   </div>
 
   <!-- 点位挂牌 -->
@@ -186,6 +192,31 @@
 • 外部回执挂回原单据；指向对冲单时回溯到根单
 • 结算流程不在本轮范围</pre>
   </div>
+
+  <!-- 素材多规格转档 -->
+  <div class="panel" id="panel-asset">
+    <h3>原图上传 · 横竖两版常规规格自动出</h3>
+    <div class="grid">
+      <div><label>原图（JPG / PNG / GIF）*</label><input id="assetFile" type="file" accept="image/*"></div>
+      <div><label>经手人（留空取登录人）</label><input id="assetOperator"></div>
+      <div class="span2"><label>备注</label><input id="assetRemark"></div>
+    </div>
+    <div class="actions"><button onclick="uploadAsset()">上传并自动转档</button></div>
+    <p id="specHint" class="muted" style="margin-top:10px"></p>
+
+    <h3>素材档案翻查</h3>
+    <div class="grid">
+      <div><label>文件名 / 素材编号（模糊）</label><input id="qAssetKw"></div>
+      <div style="align-self:end"><button class="gray" onclick="loadAssets()">翻查</button></div>
+    </div>
+    <table id="assetTable"></table>
+
+    <div id="assetDetailBox" style="margin-top:16px;display:none">
+      <h3 id="assetDetailTitle">素材档案</h3>
+      <div id="assetJobs"></div>
+      <div id="assetVersions" style="margin-top:10px"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -227,7 +258,7 @@ async function doLogin() {
   try {
     const d = await call('POST', '/login', { username: val('loginUser'), password: val('loginPass') });
     showApp(d.username); toast('登录成功，欢迎 ' + d.username, true);
-    loadSites();
+    loadSites(); loadSpecs();
   } catch (e) { toast(e.message); }
 }
 
@@ -242,7 +273,7 @@ async function init() {
     document.getElementById('panel-' + t.dataset.tab).classList.add('active');
   });
   document.getElementById('calPeriod').value = new Date().toISOString().slice(0, 7);
-  try { const me = await call('GET', '/me'); showApp(me.username); loadSites(); } catch (e) { showLogin(); }
+  try { const me = await call('GET', '/me'); showApp(me.username); loadSites(); loadSpecs(); } catch (e) { showLogin(); }
 }
 
 async function registerSite() {
@@ -371,6 +402,145 @@ async function loadVersions() {
     document.getElementById('versionTable').innerHTML =
       '<tr><th>版本号</th><th>说明</th><th>登记时刻</th></tr>'
       + list.map(v => `<tr><td>${esc(v.versionNo)}</td><td>${esc(v.description)}</td><td>${esc(v.createdAt)}</td></tr>`).join('');
+  } catch (e) { toast(e.message); }
+}
+
+/* ===== ⑦ 素材多规格转档 ===== */
+let SPEC_USAGE = {};
+let assetPollTimer = null;
+let pendingAssetId = null;
+
+function transcodeTag(s) {
+  return { PENDING: '<span class="tag pending">待处理</span>', PROCESSING: '<span class="tag processing">转档中…</span>',
+    SUCCESS: '<span class="tag success">成功</span>', FAILED: '<span class="tag failed">失败</span>' }[s] || esc(s);
+}
+function kb(n) { return n == null ? '' : (n / 1024).toFixed(1) + ' KB'; }
+function usageLabel(code) { return SPEC_USAGE[code] ? SPEC_USAGE[code] + '（' + code + '）' : code; }
+function orientLabel(o) { return { LANDSCAPE: '横图', PORTRAIT: '竖图', SQUARE: '方图' }[o] || o; }
+
+async function loadSpecs() {
+  try {
+    const cfg = await call('GET', '/assets/specs');
+    (cfg.specs || []).forEach(s => { SPEC_USAGE[s.name] = s.usage; });
+    document.getElementById('specHint').textContent =
+      '自动产出：' + (cfg.specs || []).map(s => `${s.usage} ${s.ratio} 长边≤${s.longEdge}px`).join('；')
+      + `。产物体积超 ${cfg.maxFileSizeKb}KB 再压一轮质量，首轮 ${cfg.qualityInitial}、下限 ${cfg.qualityFloor}。同一张图重复上传按文件指纹认出来，不另开档。`;
+  } catch (e) { /* 未登录等场景静默 */ }
+}
+
+async function uploadAsset() {
+  const input = document.getElementById('assetFile');
+  if (!input.files || !input.files[0]) { toast('请先选择一张原图'); return; }
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  const op = val('assetOperator'); if (op) fd.append('operatorName', op);
+  const rk = val('assetRemark'); if (rk) fd.append('remark', rk);
+  try {
+    const resp = await fetch(API + '/assets/upload', { method: 'POST', body: fd });
+    if (resp.status === 401) { showLogin(); throw new Error('未登录'); }
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.message || '上传失败');
+    const d = data.data;
+    pendingAssetId = d.asset.id;
+    if (d.deduped) {
+      toast(d.message, true);
+      document.getElementById('assetFile').value = '';
+      loadAssets();
+      loadAssetDetail(d.asset.id);
+    } else {
+      toast('上传成功，转档任务 ' + d.job.jobNo + ' 已提交，自动出横竖两版…', true);
+      document.getElementById('assetFile').value = '';
+      loadAssets();
+      pollJob(d.job.id, d.asset.id);
+    }
+  } catch (e) { toast(e.message); }
+}
+
+function pollJob(jobId, assetId) {
+  if (assetPollTimer) clearInterval(assetPollTimer);
+  const tick = async () => {
+    try {
+      const job = await call('GET', '/assets/jobs/' + jobId);
+      if (job.status === 'PENDING' || job.status === 'PROCESSING') {
+        loadAssetDetail(assetId, true);
+        return;
+      }
+      clearInterval(assetPollTimer); assetPollTimer = null;
+      if (job.status === 'SUCCESS') toast('转档成功：' + job.successCount + ' 个规格已产出', true);
+      else toast('转档失败，原因已在档案里标出：' + (job.failReason || ''), false);
+      loadAssets();
+      loadAssetDetail(assetId);
+    } catch (e) { clearInterval(assetPollTimer); assetPollTimer = null; toast(e.message); }
+  };
+  tick();
+  assetPollTimer = setInterval(tick, 800);
+}
+
+async function loadAssets() {
+  try {
+    const list = await call('GET', '/assets?keyword=' + encodeURIComponent(val('qAssetKw') || ''));
+    document.getElementById('assetTable').innerHTML =
+      '<tr><th>素材编号</th><th>文件名</th><th>原图尺寸</th><th>朝向</th><th>体积</th><th>上传次数</th><th>经手人</th><th>建档时间</th><th></th></tr>'
+      + list.map(a => `<tr>
+        <td><a href="javascript:void(0)" onclick="loadAssetDetail(${a.id})">${esc(a.assetNo)}</a></td>
+        <td>${esc(a.fileName)}</td><td>${a.width}×${a.height}</td><td>${orientLabel(a.orientation)}</td>
+        <td>${kb(a.fileSize)}</td><td>${a.uploadCount}</td><td>${esc(a.operatorName)}</td>
+        <td>${esc(a.createTime)}</td>
+        <td><button class="sm gray" onclick="loadAssetDetail(${a.id})">档案/转档状态</button></td></tr>`).join('');
+  } catch (e) { toast(e.message); }
+}
+
+async function loadAssetDetail(id, silent) {
+  try {
+    const d = await call('GET', '/assets/' + id + '/detail');
+    pendingAssetId = id;
+    document.getElementById('assetDetailBox').style.display = 'block';
+    const a = d.asset;
+    document.getElementById('assetDetailTitle').textContent =
+      '素材档案 ' + a.assetNo + ' · ' + a.fileName + '（原图 ' + a.width + '×' + a.height + '）';
+
+    document.getElementById('assetJobs').innerHTML =
+      '<table><tr><th>转档任务号</th><th>对应版本</th><th>规格</th><th>状态</th><th>产出数</th><th>失败原因</th><th>完成时刻</th><th></th></tr>'
+      + d.jobs.map(j => {
+          const ver = (d.versions || []).find(v => v.version.id === j.versionId);
+          const reason = j.status === 'FAILED'
+            ? `<div class="failbox">${esc(j.failReason || '未记录原因')}</div>` : '<span class="muted">—</span>';
+          const act = j.status === 'FAILED'
+            ? `<button class="sm warn" onclick="retryAsset(${a.id})">重新转档</button>` : '';
+          return `<tr><td>${esc(j.jobNo)}</td><td>v${ver ? ver.version.versionNo : ''}</td>
+            <td>${esc(j.specs)}</td><td>${transcodeTag(j.status)}</td><td>${j.successCount}</td>
+            <td>${reason}</td><td>${esc(j.finishedTime)}</td><td>${act}</td></tr>`;
+        }).join('') + '</table>'
+      + '<div class="actions"><button class="gray" onclick="retryAsset(' + a.id + ')">手动再跑一轮（另起新版本）</button>'
+      + '<a href="' + API + '/assets/' + a.id + '/original" target="_blank"><button class="gray" type="button" style="margin-left:8px">下载原图</button></a></div>';
+
+    document.getElementById('assetVersions').innerHTML = '<h3>转档版本与多规格产物</h3>'
+      + (d.versions || []).map(vv => {
+          const v = vv.version;
+          const src = v.source === 'RETRY' ? '重新转档' : '上传首轮';
+          const fail = v.transcodeStatus === 'FAILED' ? `<div class="failbox">失败原因：${esc(v.failReason || '')}</div>` : '';
+          const files = (vv.files || []).length
+            ? '<table><tr><th>用途</th><th>产物尺寸</th><th>长边</th><th>体积</th><th>质量轮次</th><th>最终质量</th><th></th></tr>'
+              + vv.files.map(f => `<tr><td>${esc(usageLabel(f.usage))}</td><td>${f.width}×${f.height}</td>
+                  <td>${f.longEdge}px</td><td>${kb(f.fileSize)}</td>
+                  <td>${f.qualityRound === 1 ? '首轮达标' : '第 ' + f.qualityRound + ' 轮'}</td>
+                  <td>${Math.round(f.finalQuality * 100)}%</td>
+                  <td><a href="${API}/assets/files/${f.id}/download"><button class="sm" type="button">下载</button></a></td></tr>`).join('')
+              + '</table>'
+            : '<p class="muted">本版还没有产物</p>';
+          return `<div style="border:1px solid #e3e6eb;border-radius:6px;padding:10px 12px;margin-bottom:10px">
+              <b>v${v.versionNo}</b> ${transcodeTag(v.transcodeStatus)}
+              <span class="muted">来源：${src} ｜ 经手人：${esc(v.operatorName)} ｜ ${esc(v.createTime)}</span>
+              ${fail}${files}</div>`;
+        }).join('');
+  } catch (e) { if (!silent) toast(e.message); }
+}
+
+async function retryAsset(id) {
+  try {
+    const job = await call('POST', '/assets/' + id + '/retry');
+    toast('已另起新版本重新转档，任务 ' + job.jobNo, true);
+    pollJob(job.id, id);
   } catch (e) { toast(e.message); }
 }
 

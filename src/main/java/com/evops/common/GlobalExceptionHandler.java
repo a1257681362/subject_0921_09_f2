@@ -9,6 +9,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -37,6 +39,18 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleDuplicate(DuplicateKeyException ex) {
         log.warn("唯一约束冲突: {}", ex.getMostSpecificCause().getMessage());
         return ApiResponse.fail("数据冲突：编号、单号或档期已存在，请刷新后重试");
+    }
+
+    /** 上传文件超过 multipart 大小上限。 */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ApiResponse<Void> handleUploadSize(MaxUploadSizeExceededException ex) {
+        return ApiResponse.fail("原图太大了（上限 50MB），请压缩后再上传");
+    }
+
+    /** 上传请求没带文件。 */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ApiResponse<Void> handleMissingPart(MissingServletRequestPartException ex) {
+        return ApiResponse.fail("没有收到图片文件，请选择原图后再上传");
     }
 
     @ExceptionHandler(Exception.class)

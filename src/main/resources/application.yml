@@ -24,6 +24,33 @@ spring:
     init:
       mode: always
       schema-locations: classpath:schema.sql
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 50MB
+      max-request-size: 55MB
+
+# 素材多规格转档
+asset:
+  # 原图与各规格产物的本地落盘根目录
+  storage-root: ./data/assets
+  # 常规规格：投放信息流的横版 / 竖版两版（宽:高，居中裁切），长边压进限定像素
+  specs:
+    - name: feed_landscape
+      usage: 信息流横版
+      ratio: "16:9"
+      long-edge: 1280
+    - name: feed_portrait
+      usage: 信息流竖版
+      ratio: "9:16"
+      long-edge: 1280
+  # 产物体积上限（字节），超标就再压一轮质量
+  max-file-size: 300KB
+  quality:
+    # 首轮质量；每超一轮上限降到下一档，直至下限
+    initial: 0.85
+    floor: 0.5
+    decrement: 0.15
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
