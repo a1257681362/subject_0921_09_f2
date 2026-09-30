@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>户外广告点位与上刊底账 · EVOPS</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f4f5f7; color: #1f2329; font-size: 14px; }
+  header { background: #1f3a5f; color: #fff; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 17px; font-weight: 600; }
+  header .who { font-size: 13px; opacity: .85; }
+  #login { max-width: 380px; margin: 80px auto; background: #fff; border-radius: 8px; padding: 28px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+  #login h2 { margin-bottom: 18px; font-size: 16px; }
+  #app { display: none; max-width: 1280px; margin: 0 auto; padding: 16px 24px 40px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid #e3e6eb; }
+  .tab { padding: 9px 18px; cursor: pointer; border-radius: 6px 6px 0 0; color: #555; }
+  .tab.active { background: #fff; color: #1f3a5f; font-weight: 600; border: 1px solid #e3e6eb; border-bottom: 2px solid #fff; margin-bottom: -2px; }
+  .panel { display: none; background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .panel.active { display: block; }
+  h3 { font-size: 15px; margin: 18px 0 10px; color: #1f3a5f; }
+  h3:first-child { margin-top: 0; }
+  label { display: block; font-size: 12px; color: #6b7280; margin: 8px 0 3px; }
+  input, select { width: 100%; padding: 7px 10px; border: 1px solid #d0d4dc; border-radius: 5px; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 14px; }
+  .grid .span2 { grid-column: span 2; }
+  button { padding: 7px 16px; border: none; border-radius: 5px; background: #1f6fd0; color: #fff; cursor: pointer; font-size: 13px; }
+  button:hover { background: #1858a8; }
+  button.gray { background: #6b7280; }
+  button.gray:hover { background: #565d6b; }
+  button.sm { padding: 3px 9px; font-size: 12px; }
+  button.danger { background: #c0392b; }
+  button.warn { background: #d9820b; }
+  .actions { margin-top: 14px; display: flex; gap: 10px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  th, td { border: 1px solid #e3e6eb; padding: 6px 8px; text-align: left; }
+  th { background: #f0f3f7; font-weight: 600; white-space: nowrap; }
+  tr.closed td { color: #8a9099; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; }
+  .tag.hung { background: #e8f3ff; color: #1f6fd0; }
+  .tag.down { background: #eee; color: #666; }
+  .tag.offset { background: #fdeee2; color: #c2620a; }
+  .tag.kind { background: #f3e8ff; color: #7c3aed; }
+  .cell-yes { background: #fdecea; color: #c0392b; text-align: center; cursor: default; }
+  .cell-no { background: #eafaf0; color: #1a8a4a; text-align: center; }
+  #toast { position: fixed; top: 16px; right: 16px; z-index: 99; display: flex; flex-direction: column; gap: 8px; }
+  .toast { padding: 10px 18px; border-radius: 6px; color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.15); max-width: 420px; }
+  .toast.ok { background: #1a8a4a; }
+  .toast.err { background: #c0392b; }
+  .muted { color: #8a9099; font-size: 12px; }
+  .row-actions button { margin-right: 4px; }
+  pre.event { background: #f7f8fa; border: 1px solid #e3e6eb; border-radius: 5px; padding: 10px; font-size: 12px; max-height: 360px; overflow: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<div id="login">
+  <h2>点位与上刊底账 · 登录</h2>
+  <label>用户名</label><input id="loginUser" value="demo">
+  <label>密码</label><input id="loginPass" type="password" value="demo">
+  <div class="actions"><button onclick="doLogin()">登录进入底账</button></div>
+  <p class="muted" style="margin-top:12px">演示账号 demo / demo，骨架账号 bootstrap / bootstrap</p>
+</div>
+
+<div id="app">
+  <div class="tabs">
+    <div class="tab active" data-tab="site">① 点位挂牌</div>
+    <div class="tab" data-tab="post">② 上刊</div>
+    <div class="tab" data-tab="orders">③ 单据与落架/对冲</div>
+    <div class="tab" data-tab="receipt">④ 外部回执</div>
+    <div class="tab" data-tab="calendar">⑤ 档期月历</div>
+    <div class="tab" data-tab="version">⑥ 版本与留底</div>
+  </div>
+
+  <!-- 点位挂牌 -->
+  <div class="panel active" id="panel-site">
+    <h3>点位建档挂牌</h3>
+    <div class="grid">
+      <div><label>点位编号 *</label><input id="siteNo" placeholder="如 BJ-WFJ-001"></div>
+      <div><label>尺寸 *</label><input id="siteSize" placeholder="如 18m×6m"></div>
+      <div><label>朝向 *</label><input id="siteOri" placeholder="如 朝北"></div>
+      <div><label>商圈 *</label><input id="siteDistrict" placeholder="如 王府井"></div>
+      <div class="span2"><label>备注</label><input id="siteRemark"></div>
+      <div><label>经手人（留空取登录人）</label><input id="siteOperator"></div>
+    </div>
+    <div class="actions"><button onclick="registerSite()">挂牌建档</button></div>
+    <h3>点位翻查</h3>
+    <div class="grid">
+      <div><label>编号（模糊）</label><input id="qSiteNo"></div>
+      <div><label>商圈（模糊）</label><input id="qDistrict"></div>
+      <div><label>朝向</label><input id="qOri"></div>
+      <div style="align-self:end"><button class="gray" onclick="loadSites()">翻查</button></div>
+    </div>
+    <table id="siteTable"></table>
+  </div>
+
+  <!-- 上刊 -->
+  <div class="panel" id="panel-post">
+    <h3>开上刊单（画面挂到点位当周档期，状态挂起）</h3>
+    <div class="grid">
+      <div><label>点位编号 *</label><input id="postSiteNo" placeholder="已挂牌的点位编号"></div>
+      <div><label>画面名称 *</label><input id="postCreative" placeholder="如 中秋档主视觉"></div>
+      <div><label>上刊发生日（决定档期周/归属月）</label><input id="postDate" type="date"></div>
+      <div><label>经手人（留空取登录人）</label><input id="postOperator"></div>
+      <div class="span2"><label>备注</label><input id="postRemark"></div>
+    </div>
+    <div class="actions"><button onclick="createOrder()">开单上刊</button></div>
+    <p class="muted" style="margin-top:10px">单号由系统唯一生成（PO+序列）；同一点位同一周只能挂一张画面；归属月按发生日落死。</p>
+  </div>
+
+  <!-- 单据翻查与动作 -->
+  <div class="panel" id="panel-orders">
+    <h3>单据翻查</h3>
+    <div class="grid">
+      <div><label>归属月 yyyy-MM</label><input id="qPeriod" placeholder="2026-09"></div>
+      <div><label>点位编号</label><input id="qOrderSite"></div>
+      <div><label>状态</label><select id="qStatus"><option value="">全部</option><option value="HUNG">挂起</option><option value="TAKEN_DOWN">落架</option><option value="OFFSET">已对冲</option></select></div>
+      <div><label>单号（模糊）</label><input id="qOrderNo"></div>
+      <div style="align-self:end"><button class="gray" onclick="loadOrders()">翻查</button></div>
+    </div>
+    <table id="orderTable"></table>
+    <h3>单据操作</h3>
+    <div class="grid">
+      <div><label>目标单号</label><input id="actOrderNo"></div>
+      <div><label>发生日（落架/对冲日，留空取今天）</label><input id="actDate" type="date"></div>
+      <div><label>经手人（留空取登录人）</label><input id="actOperator"></div>
+      <div class="span2"><label id="actReasonLabel">原因/备注</label><input id="actReason"></div>
+      <div><label>更正画面名（仅“留痕更正”用）</label><input id="actCreative"></div>
+      <div><label>回退目标版本号（仅“版本回退”用）</label><input id="actVersion" type="number" min="1"></div>
+    </div>
+    <div class="actions">
+      <button class="gray" onclick="takeDown()">落架</button>
+      <button class="warn" onclick="offsetOrder()">补对冲单</button>
+      <button onclick="editOrder()">留痕更正</button>
+      <button class="danger" onclick="rollbackOrder()">版本回退</button>
+      <button class="gray" onclick="showEvents()">查事件留底</button>
+      <button class="gray" onclick="showChain()">查根单链</button>
+    </div>
+    <div id="eventBox" style="margin-top:12px;display:none"><pre class="event" id="eventContent"></pre></div>
+  </div>
+
+  <!-- 回执 -->
+  <div class="panel" id="panel-receipt">
+    <h3>外部回执挂回原单据</h3>
+    <div class="grid">
+      <div><label>回执编号 *</label><input id="rcpNo"></div>
+      <div><label>关联单号 *（上刊单/对冲单均可，自动回溯根单）</label><input id="rcpOrderNo"></div>
+      <div><label>来源</label><input id="rcpSource" placeholder="监测平台 / 业主签收"></div>
+      <div><label>回执发生日</label><input id="rcpDate" type="date"></div>
+      <div class="span2"><label>内容</label><input id="rcpContent"></div>
+      <div><label>经手人</label><input id="rcpOperator"></div>
+    </div>
+    <div class="actions"><button onclick="attachReceipt()">挂回单据</button></div>
+    <h3>按单查回执</h3>
+    <div class="grid">
+      <div><label>单号</label><input id="rcpQueryNo"></div>
+      <div style="align-self:end"><button class="gray" onclick="loadReceipts()">查回执</button></div>
+    </div>
+    <table id="receiptTable"></table>
+  </div>
+
+  <!-- 档期月历 -->
+  <div class="panel" id="panel-calendar">
+    <h3>月度档期周历（哪块屏哪周空着，一目了然）</h3>
+    <div class="grid">
+      <div><label>归属月 yyyy-MM</label><input id="calPeriod" placeholder="2026-09"></div>
+      <div><label>商圈（模糊）</label><input id="calDistrict"></div>
+      <div style="align-self:end"><button class="gray" onclick="loadCalendar()">翻查月历</button></div>
+    </div>
+    <div id="calendarBox" style="margin-top:12px;overflow:auto"></div>
+  </div>
+
+  <!-- 版本 -->
+  <div class="panel" id="panel-version">
+    <h3>起步工作区底账版本登记</h3>
+    <div class="actions"><button class="gray" onclick="loadVersions()">刷新版本</button></div>
+    <table id="versionTable"></table>
+    <h3>口径说明</h3>
+    <pre class="event">• 点位编号 / 单号 / 回执号唯一，重复存不进去（DB 唯一约束兜底）
+• 档期按 ISO 周（周一至周日），同屏同周只挂一张画面
+• 归属月按“发生日”落库固化（biz_period），跨月单不随查询日漂移
+• 改错不抹记录：原单置“已对冲”、释放档期，另补对冲单挂同一根单
+• 关闭后（落架/已对冲）的单据不能静默修改、不能回退
+• 每步动作写事件留底：经手人、发生日、事件时刻、单据快照
+• 外部回执挂回原单据；指向对冲单时回溯到根单
+• 结算流程不在本轮范围</pre>
+  </div>
+</div>
+
+<script>
+const API = '/api';
+let currentUser = null;
+
+function toast(msg, ok) {
+  const box = document.getElementById('toast');
+  const el = document.createElement('div');
+  el.className = 'toast ' + (ok ? 'ok' : 'err');
+  el.textContent = msg;
+  box.appendChild(el);
+  setTimeout(() => el.remove(), 4200);
+}
+
+async function call(method, url, body) {
+  const opt = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opt.body = JSON.stringify(body);
+  const resp = await fetch(API + url, opt);
+  let data = null;
+  try { data = await resp.json(); } catch (e) { /* ignore */ }
+  if (resp.status === 401) { showLogin(); throw new Error('未登录'); }
+  if (!data || !data.success) throw new Error((data && data.message) || ('请求失败 ' + resp.status));
+  return data.data;
+}
+
+function val(id) { const v = document.getElementById(id).value; return v === '' ? undefined : v; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function statusTag(s) {
+  return { HUNG: '<span class="tag hung">挂起</span>', TAKEN_DOWN: '<span class="tag down">落架</span>',
+    OFFSET: '<span class="tag offset">已对冲</span>' }[s] || esc(s);
+}
+
+function showLogin() { document.getElementById('login').style.display = 'block'; document.getElementById('app').style.display = 'none'; }
+function showApp(u) { currentUser = u; document.getElementById('login').style.display = 'none'; document.getElementById('app').style.display = 'block';
+  document.querySelector('header .who') && (document.querySelector('header .who').textContent = '经手人：' + u); }
+
+async function doLogin() {
+  try {
+    const d = await call('POST', '/login', { username: val('loginUser'), password: val('loginPass') });
+    showApp(d.username); toast('登录成功，欢迎 ' + d.username, true);
+    loadSites();
+  } catch (e) { toast(e.message); }
+}
+
+async function init() {
+  // header 占位（登录后填充）
+  document.body.insertAdjacentHTML('afterbegin',
+    '<header><h1>户外广告点位与上刊底账 <span class="muted" style="color:#c8d4e6">EVOPS f1-ledger-1</span></h1><span class="who"></span></header>');
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+  });
+  document.getElementById('calPeriod').value = new Date().toISOString().slice(0, 7);
+  try { const me = await call('GET', '/me'); showApp(me.username); loadSites(); } catch (e) { showLogin(); }
+}
+
+async function registerSite() {
+  try {
+    await call('POST', '/sites', { siteNo: val('siteNo'), sizeSpec: val('siteSize'), orientation: val('siteOri'),
+      businessDistrict: val('siteDistrict'), remark: val('siteRemark'), operatorName: val('siteOperator') });
+    toast('挂牌建档成功', true); ['siteNo','siteSize','siteOri','siteDistrict','siteRemark'].forEach(i => document.getElementById(i).value = '');
+    loadSites();
+  } catch (e) { toast(e.message); }
+}
+
+async function loadSites() {
+  try {
+    const list = await call('GET', '/sites?siteNo=' + encodeURIComponent(val('qSiteNo')||'')
+      + '&businessDistrict=' + encodeURIComponent(val('qDistrict')||'') + '&orientation=' + encodeURIComponent(val('qOri')||''));
+    document.getElementById('siteTable').innerHTML =
+      '<tr><th>编号</th><th>尺寸</th><th>朝向</th><th>商圈</th><th>状态</th><th>挂牌经手人</th><th>挂牌时间</th></tr>'
+      + list.map(s => `<tr><td>${esc(s.siteNo)}</td><td>${esc(s.sizeSpec)}</td><td>${esc(s.orientation)}</td>
+        <td>${esc(s.businessDistrict)}</td><td>已挂牌</td><td>${esc(s.operatorName)}</td><td>${esc(s.createTime)}</td></tr>`).join('');
+  } catch (e) { toast(e.message); }
+}
+
+async function createOrder() {
+  try {
+    const d = await call('POST', '/orders', { siteNo: val('postSiteNo'), creativeName: val('postCreative'),
+      occurDate: val('postDate'), operatorName: val('postOperator'), remark: val('postRemark') });
+    toast('上刊成功，单号 ' + d.orderNo + '，档期 ' + d.weekStart + ' 至 ' + d.weekEnd + '，归属月 ' + d.bizPeriod, true);
+    document.getElementById('actOrderNo').value = d.orderNo;
+  } catch (e) { toast(e.message); }
+}
+
+async function loadOrders() {
+  try {
+    const list = await call('GET', '/orders?period=' + encodeURIComponent(val('qPeriod')||'')
+      + '&siteNo=' + encodeURIComponent(val('qOrderSite')||'') + '&status=' + encodeURIComponent(val('qStatus')||'')
+      + '&orderNo=' + encodeURIComponent(val('qOrderNo')||''));
+    document.getElementById('orderTable').innerHTML =
+      '<tr><th>单号</th><th>种类</th><th>点位</th><th>画面</th><th>档期(周)</th><th>发生日</th><th>归属月</th><th>状态</th><th>版本</th><th>经手人</th></tr>'
+      + list.map(o => `<tr class="${o.status==='HUNG'?'':'closed'}">
+        <td><a href="javascript:void(0)" onclick="pickOrder('${esc(o.orderNo)}')">${esc(o.orderNo)}</a></td>
+        <td>${o.orderKind==='OFFSET'?'<span class="tag kind">对冲单</span>':'上刊单'}</td>
+        <td>${esc(o.siteId)}</td><td>${esc(o.creativeName)}</td>
+        <td>${esc(o.weekStart)} ~ ${esc(o.weekEnd)}</td><td>${esc(o.occurDate)}</td><td>${esc(o.bizPeriod)}</td>
+        <td>${statusTag(o.status)}</td><td>v${o.versionNo}</td><td>${esc(o.operatorName)}</td></tr>`).join('');
+  } catch (e) { toast(e.message); }
+}
+function pickOrder(no) { document.getElementById('actOrderNo').value = no; toast('已填入选中单号 ' + no, true); }
+
+function actionBody() {
+  return { occurDate: val('actDate'), operatorName: val('actOperator'), reason: val('actReason') };
+}
+async function takeDown() {
+  try { const d = await call('POST', `/orders/${val('actOrderNo')}/take-down`, actionBody());
+    toast('已落架，单据关闭：' + d.orderNo, true); loadOrders();
+  } catch (e) { toast(e.message); }
+}
+async function offsetOrder() {
+  try { const d = await call('POST', `/orders/${val('actOrderNo')}/offset`, actionBody());
+    toast('已补对冲单 ' + d.orderNo + '，原单置已对冲并释放档期', true); loadOrders();
+  } catch (e) { toast(e.message); }
+}
+async function editOrder() {
+  try { const d = await call('POST', `/orders/${val('actOrderNo')}/edit`,
+      { creativeName: val('actCreative'), operatorName: val('actOperator') });
+    toast('更正完成，新版本 v' + d.versionNo, true); loadOrders();
+  } catch (e) { toast(e.message); }
+}
+async function rollbackOrder() {
+  try { const d = await call('POST', `/orders/${val('actOrderNo')}/rollback`,
+      { targetVersion: Number(val('actVersion')), occurDate: val('actDate'), operatorName: val('actOperator'), reason: val('actReason') });
+    toast('已回退，新版本 v' + d.versionNo, true); loadOrders();
+  } catch (e) { toast(e.message); }
+}
+async function showEvents() {
+  try {
+    const list = await call('GET', `/orders/${val('actOrderNo')}/events`);
+    document.getElementById('eventBox').style.display = 'block';
+    document.getElementById('eventContent').textContent = list.map(e =>
+      `[${e.eventTime}] ${e.eventType} v${e.versionNo} | 发生日 ${e.occurDate} | 经手人 ${e.operatorName}`
+      + (e.relatedOrderNo ? ` | 关联单 ${e.relatedOrderNo}` : '') + `\n  ${e.detail || ''}`).join('\n\n');
+  } catch (e) { toast(e.message); }
+}
+async function showChain() {
+  try {
+    const d = await call('GET', `/orders/${val('actOrderNo')}/chain`);
+    document.getElementById('eventBox').style.display = 'block';
+    document.getElementById('eventContent').textContent = '根单ID ' + d.rootOrderId + ':\n'
+      + d.orders.map(o => `${o.orderNo} [${o.orderKind}] ${o.status} v${o.versionNo} ${o.occurDate} ${o.creativeName}`).join('\n');
+  } catch (e) { toast(e.message); }
+}
+
+async function attachReceipt() {
+  try {
+    await call('POST', '/receipts', { receiptNo: val('rcpNo'), orderNo: val('rcpOrderNo'), source: val('rcpSource'),
+      content: val('rcpContent'), occurDate: val('rcpDate'), operatorName: val('rcpOperator') });
+    toast('回执已挂回原单据（根单可查）', true);
+  } catch (e) { toast(e.message); }
+}
+async function loadReceipts() {
+  try {
+    const list = await call('GET', '/receipts/order/' + encodeURIComponent(val('rcpQueryNo')));
+    document.getElementById('receiptTable').innerHTML =
+      '<tr><th>回执号</th><th>指向单号</th><th>根单号</th><th>来源</th><th>内容</th><th>发生日</th><th>接收时刻</th><th>经手人</th></tr>'
+      + list.map(r => `<tr><td>${esc(r.receiptNo)}</td><td>${esc(r.orderNo)}</td><td>${esc(r.rootOrderNo)}</td>
+        <td>${esc(r.source)}</td><td>${esc(r.content)}</td><td>${esc(r.occurDate)}</td>
+        <td>${esc(r.receivedTime)}</td><td>${esc(r.operatorName)}</td></tr>`).join('');
+  } catch (e) { toast(e.message); }
+}
+
+async function loadCalendar() {
+  try {
+    const d = await call('GET', '/ledger/calendar?period=' + encodeURIComponent(val('calPeriod'))
+      + '&businessDistrict=' + encodeURIComponent(val('calDistrict')||''));
+    let html = `<table><tr><th>点位</th><th>尺寸</th><th>朝向</th><th>商圈</th>`
+      + d.weekStarts.map(w => `<th>周始 ${esc(w)}</th>`).join('') + '</tr>';
+    html += d.sites.map(s => `<tr><td>${esc(s.siteNo)}</td><td>${esc(s.sizeSpec)}</td><td>${esc(s.orientation)}</td><td>${esc(s.businessDistrict)}</td>`
+      + s.weeks.map(w => w.occupied ? `<td class="cell-yes" title="${esc(w.orderNo)}">占<br>${esc(w.orderNo)}</td>` : '<td class="cell-no">空</td>').join('') + '</tr>').join('');
+    html += '</table>';
+    document.getElementById('calendarBox').innerHTML = html;
+  } catch (e) { toast(e.message); }
+}
+
+async function loadVersions() {
+  try {
+    const list = await call('GET', '/ledger/versions');
+    document.getElementById('versionTable').innerHTML =
+      '<tr><th>版本号</th><th>说明</th><th>登记时刻</th></tr>'
+      + list.map(v => `<tr><td>${esc(v.versionNo)}</td><td>${esc(v.description)}</td><td>${esc(v.createdAt)}</td></tr>`).join('');
+  } catch (e) { toast(e.message); }
+}
+
+init();
+</script>
+</body>
+</html>
